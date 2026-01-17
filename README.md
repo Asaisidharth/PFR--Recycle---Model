@@ -13,7 +13,7 @@ This project solves the coupled non-linear system of differential-algebraic equa
 * **Equation-Oriented Solver:** Solves the entire flowsheet (Reactor + Flash + Recycle + Mixer) simultaneously using `scipy.optimize.least_squares`.
 * **Rigorous PFR Model:** Uses `scipy.integrate.solve_ivp` to integrate mass, energy, and momentum balances along the reactor length.
 * **Flash Separation:** Implements Rachford-Rice and equilibrium constants to model vapor-liquid equilibrium.
-* **Interactive Simulation:** Real-time dashboard to explore the sensitivity of the system to **Inlet Temperature** and **Activation Energy ($E_a$)**.
+* **Interactive Simulation:** Real-time dashboard to explore the sensitivity of the system to **Inlet Temperature** and **Activation Energy (Ea)**.
 
 ## 🧠 The "Smart" Slider Logic (Handling Hysteresis)
 
@@ -24,7 +24,7 @@ One of the biggest challenges in simulating non-linear reactors with recycle loo
 ### The Problem
 Standard solvers are "lazy"—they use the previous solution as the initial guess for the next step. If you start with a cold reactor and slowly heat it up, the solver gets "stuck" on the extinguished branch, even when the reactor *should* ignite.
 
-### The Solution: "Biased Guessing."
+### The Solution: "Biased Guessing"
 To make the interactive slider feel physically accurate and responsive, I implemented a **Biased Guess strategy** in the solver loop.
 
 Instead of strictly using the previous state (memory), the update loop forces a "Hot Kick" to the temperature variable before solving:
@@ -38,8 +38,14 @@ guess = state["current_sol"].copy()
 # 2. FORCE the solver to look for an ignited state
 # We override the temperature guess to be at least 600 K.
 guess[8] = max(guess[8], 600.0)
-Why this works: By forcing the solver to start its search from a high-temperature guess ($600K$), we ensure that if an Ignited State exists, the solver will find it immediately. This allows the simulation to snap correctly between extinguished and ignited states without manual resetting, providing a smooth user experience.📂 Project StructureThe project is organized as a proper Python package for modularity and testing.Plaintextsrc/pfr_model/
 
+
+Why this works: By forcing the solver to start its search from a high-temperature guess (600K), we ensure that if an Ignited State exists, the solver will find it immediately. This allows the simulation to snap correctly between extinguished and ignited states without manual resetting, providing a smooth user experience.
+
+📂 Project Structure
+The project is organized as a proper Python package for modularity and testing.
+
+src/pfr_model/
 ├── config/
 │   └── parameters.py       # Global physical constants (R, Cp, Enthalpy) and default inputs
 ├── kinetics/
@@ -55,8 +61,36 @@ Why this works: By forcing the solver to start its search from a high-temperatur
 │   └── interactive_plots.py   # Matplotlib GUI with slider logic
 └── scripts/
     └── run_interactive.py     # Entry point to launch the app
-🛠️ Installation: Clone the repository and install it in editable mode: Bashgit clone [https://github.com/Asaisidharth/PFR-model-recycle.git](https://github.com/Asaisidharth/PFR-model-recycle.git)
+
+
+
+🛠️ Installation
+Clone the repository and install it in editable mode:
+
+git clone [https://github.com/Asaisidharth/PFR-model-recycle.git](https://github.com/Asaisidharth/PFR-model-recycle.git)
 cd PFR-model-recycle
-pip install -e.
-🖥️ Usage To launch the interactive simulation dashboard: Bashpython -m pfr_model.scripts.run_interactive
-🔬 Mathematical ModelThe system solves for a vector of 11 unknowns simultaneously:Recycle Streams: $F_{A,rec}, F_{B,rec}$Flash Split: $F_{A,vapor}, F_{B,vapor}, F_{A,liquid}, F_{B,liquid}$Reactor Inlet: $F_{A,in}, F_{B,in}$Reactor Outlet: $F_{A,out}, F_{B,out}, T_{out}$The residuals are calculated by closing the mass and energy balances across the mixer, the integrated PFR path, and the flash unit.📄 LicenseThis project is licensed under the MIT License - see the LICENSE file for details.
+pip install -e .
+
+
+🖥️ Usage
+To launch the interactive simulation dashboard:
+
+
+python -m pfr_model.scripts.run_interactive
+
+
+🔬 Mathematical Model
+The system solves for a vector of 11 unknowns simultaneously:
+
+Recycle Streams: F_A_rec, F_B_rec
+
+Flash Split: F_A_vapor, F_B_vapor, F_A_liquid, F_B_liquid
+
+Reactor Inlet: F_A_in, F_B_in
+
+Reactor Outlet: F_A_out, F_B_out, T_out
+
+The residuals are calculated by closing the mass and energy balances across the mixer, the integrated PFR path, and the flash unit.
+
+📄 License
+This project is licensed under the MIT License - see the LICENSE file for details.
