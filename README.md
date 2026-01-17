@@ -8,6 +8,11 @@ A robust, equation-oriented simulation of a Plug Flow Reactor (PFR) integrated w
 
 This project solves the coupled non-linear system of differential-algebraic equations (DAEs) that arise when connecting a kinetic reactor model with a thermodynamic flash separator. It includes an interactive dashboard to visualize the process dynamics and reactor stability.
 
+## 📸 Interactive Dashboard
+
+![Dashboard Preview](dashboard.png)
+*Figure 1: Real-time simulation showing reactor temperature profiles (left), phase plot (right), and interactive sliders for Inlet Temperature and Activation Energy.*
+
 ## 🚀 Key Features
 
 * **Equation-Oriented Solver:** Solves the entire flowsheet (Reactor + Flash + Recycle + Mixer) simultaneously using `scipy.optimize.least_squares`.
@@ -22,7 +27,7 @@ One of the biggest challenges in simulating non-linear reactors with recycle loo
 2.  **Ignited Branch:** High temperature, high conversion.
 
 ### The Problem
-Standard solvers are "lazy"—they use the previous solution as the initial guess for the next step. If you start with a cold reactor and slowly heat it up, the solver gets "stuck" on the extinguished branch, even when the reactor *should* ignite.
+Standard solvers are "lazy" they use the previous solution as the initial guess for the next step. If you start with a cold reactor and slowly heat it up, the solver gets "stuck" on the extinguished branch, even when the reactor *should* ignite.
 
 ### The Solution: "Biased Guessing"
 To make the interactive slider feel physically accurate and responsive, I implemented a **Biased Guess strategy** in the solver loop.
@@ -45,6 +50,7 @@ Why this works: By forcing the solver to start its search from a high-temperatur
 ### 📂 Project Structure
 The project is organized as a proper Python package for modularity and testing.
 
+```
 src/pfr_model/
 ├── config/
 │   └── parameters.py       # Global physical constants (R, Cp, Enthalpy) and default inputs
@@ -61,7 +67,7 @@ src/pfr_model/
 │   └── interactive_plots.py   # Matplotlib GUI with slider logic
 └── scripts/
     └── run_interactive.py     # Entry point to launch the app
-
+```
 
 
 ### 🛠️ Installation
