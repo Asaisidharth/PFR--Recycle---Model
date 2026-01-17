@@ -13,6 +13,22 @@ This project solves the coupled non-linear system of differential-algebraic equa
 ![Dashboard Preview](dashboard.png)
 *Figure 1: Real-time simulation showing reactor temperature profiles (left), phase plot (right), and interactive sliders for Inlet Temperature and Activation Energy.*
 
+## 🔄 Process & Computational Architecture
+
+This section details both the physical engineering process and the corresponding software architecture used to simulate it.
+
+### 1. Process Flow Diagram (PFD)
+Standard chemical engineering representation of the reactor loop. Fresh feed is mixed with the recycle stream, reacted in the PFR, and separated in the flash unit.
+
+![Professional PFD](Simple_flowsheet.png)
+*Figure 2: Detailed Process Flow Diagram with equipment symbols and stream labels.*
+
+### 2. Computational Structure vs. Material Flow
+A mapping of how the Python modules interact to solve the physical process streams. The equation-oriented solver acts as the central orchestrator, iteratively calling unit operation models until convergence.
+
+![Computational Structure](Computational_material_flows.png)
+*Figure 3: Side-by-side comparison of the software architecture (data flow) and physical material flow.*
+
 ## 🚀 Key Features
 
 * **Equation-Oriented Solver:** Solves the entire flowsheet (Reactor + Flash + Recycle + Mixer) simultaneously using `scipy.optimize.least_squares`.
