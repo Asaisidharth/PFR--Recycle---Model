@@ -1,0 +1,364 @@
+import numpy as np 
+import matplotlib.pyplot as plt 
+from scipy.optimize import fsolve 
+from scipy.integrate import solve_ivp
+from scipy.optimize import OptimizeWarning
+from scipy.optimize import least_squares 
+from matplotlib.widgets import Slider, Button
+import warnings
+from matplotlib.backend_bases import MouseButton
+import time 
+Ea_val = 48000.0
+current_sol = None 
+def rate_constant(T):
+    k0  = 5.0e3     # 1/s  
+    R = 8.314    
+    #Clip T to avoid division by zero if solver tries T = 0
+    T_safe = np.maximum(T,100.0)
+    return k0 * np.exp(-Ea_val / (R*T_safe))
+
+
+def pfr_odes(z,y,F_I):
+    
+    #Unpacking constants 
+    F_A,F_B,T,P = y
+
+
+    # Reactor modelling 
+    ΔH = -80_000                # J/mol (exothermic)
+    Cp = 100.0                  # J/molK
+    f = 0.005                   # Turbulent gas 
+    Mbar = 0.030                # Kg/mol 
+    D = 0.10                    # In meters (m)
+    A = np.pi * D**2 / 4        # Cross-sectional area of the reactor (m2) 
+    #Cooling jacket 
+    Ua = 3000.0
+    Ta = 32.0
+    F_tot = F_A + F_B + F_I
+    
+    r1 = 8.314
+    # Volumetric flow (Ideal gas)
+    v_dot = (F_tot*r1*T)/P 
+    
+    # Concentration 
+    C_A = F_A/v_dot
+    
+    #Reaction rate
+    r = rate_constant(T)*C_A
+    R = r*A                     # mol/(s*m)
+
+    #Molar balances 
+    dFa_dz = -R
+    dFb_dz = R
+
+        #Energy balances 
+    Q_gen = (-ΔH * R)
+    Q_remove = Ua*A*(Ta-T)
+    dT_dz = (Q_gen+Q_remove)/(F_tot*Cp)
+
+    #Pressure drop 
+    dPdz = (
+        -f*Mbar*F_tot**2*R*T/(2*D*A**2*P)
+    )
+
+    return [dFa_dz, dFb_dz, dT_dz, dPdz]
+
+def solve_pfr(F_in,T_in):
+    F_I = F_in[2]
+    #Safety: Ensure inputs are physical 
+    T_in = max(T_in,200.0)
+    F_in = np.maximum(F_in, 0.0)
+
+    sol = solve_ivp(
+        pfr_odes,
+        (0.0,2.5),
+        [F_in[0],F_in[1],T_in,P0],
+        args=(F_I,),
+        method="BDF",
+        rtol=1e-6,
+        atol=1e-9
+    )
+
+    if not sol.success:
+        return np.array([1e5, 1e5, 1e5])
+    return sol.y[:,-1]
+
+def flash_separator(F_in,x,k):
+    #unpacking constants F_in,x 
+    #F_in = [F_A,F_B,F_i]
+    #x = [F_A_v,F_A_l,F_B_v,F_B_l]
+
+    K_A,K_B = k
+    F_A,F_B,F_i = F_in
+    F_A_v,F_A_l,F_B_v,F_B_l = x
+    
+
+    #Mass balances
+    b1 = F_A_v + F_A_l - F_A  
+    b2 = F_B_v + F_B_l - F_B 
+
+    #Physics Fix: Added F_i to denominator 
+    #Safety: max(...,1e-5) prevents divide by zero 
+    denom_v = max(1e-5, F_A_v + F_B_v + F_i)
+    denom_l = max(1e-5, F_A_l + F_B_l)
+
+    #Thermodynamic balances 
+
+    t1 = (F_A_v/ denom_v) - K_A * (F_A_l / denom_l) 
+    t2 = (F_B_v/ denom_v)  - K_B * (F_B_l/ denom_l)
+
+    res1 = np.asarray([b1,b2,t1,t2])
+
+    return res1 
+
+def flowsheet_residual(x_fr,params):
+    #x_fr = [F_A_rec, F_B_rec,F_A_v,F_B_v,F_A_PFR_in,F_B_PFR_in,F_A_out,F_B_out,T_out,F_A_l,F_B_l]
+    #params = [b,F_in,T,k]
+    #b = [] separation values 
+    # F_in = F_A,F_B,F_i
+    b = params["b"]
+    F_in = params["F_in"]
+    T_in = params["T_in"]
+    k = params["k"]
+    F_A_rec = x_fr[0]
+    F_B_rec = x_fr[1]
+    F_A_v   = x_fr[2]
+    F_B_v   = x_fr[3]
+    F_A_PFR_in = x_fr[4]
+    F_B_PFR_in =  x_fr[5]
+    F_A_out = x_fr[6] 
+    F_B_out = x_fr[7]
+    T_out = x_fr[8]
+    F_A_l = x_fr[9]
+    F_B_l = x_fr[10]
+    F_A = F_in[0]
+    F_B = F_in[1]
+    F_i = F_in[2]
+    X_flash = [F_A_v,F_A_l,F_B_v,F_B_l]
+    F_PFR_in = [F_A_PFR_in,F_B_PFR_in,F_i]
+    # Recycle residual equations 
+
+    R_rec_A = F_A_rec - b * F_A_v
+    R_rec_B = F_B_rec - b * F_B_v
+
+    #pfr inlet residuals  
+    R_mix_A = F_A_PFR_in - (F_A + F_A_rec)
+    R_mix_B = F_B_PFR_in - (F_B + F_B_rec)
+    #PFR remains unconstrained lets call the solver 
+    F_A_pred, F_B_pred, T_pred = solve_pfr(
+        F_PFR_in,
+        T_in
+    )
+    R_PFR_A = F_A_out - F_A_pred
+    R_PFR_B = F_B_out - F_B_pred
+    R_PFR_T = (T_out- T_pred) / 100.0
+
+    # flash separator equations 
+    F_flash_in = [F_A_out,F_B_out,F_i]
+    res3 = flash_separator(F_flash_in,X_flash,k)
+
+    res2 = np.asarray([R_rec_A,R_rec_B,R_mix_A,R_mix_B,R_PFR_A,R_PFR_B,R_PFR_T])
+    residual_final = np.concatenate((res2,res3))
+
+    return residual_final / np.maximum(1.0,np.abs(x_fr))
+
+# Intial guess of the unkown vectors 
+
+F_A0 = 1.0 # mol/s
+F_B0 = 0.0 # mol/s 
+F_i = 1.0  # mol/s
+F_in = np.array([F_A0,F_B0,F_i])
+T0 = 500 # k
+P0 = 20e5 # 20 bar  
+b = 0.3
+k = np.array([0.1,0.2])
+params = {
+    "F_in" : F_in,
+    "T_in" : T0,
+    "b" : 0.3,
+    "k" : k
+}
+
+x0 = np.array([
+    0.05, 0.1,             # F_A_rec, F_B_rec (Guessing Recycle exists)
+    0.3, 0.1,              # F_A_v, F_B_v (Vapor flow guess)
+    1.1, 0.1,              # F_A_PFR_in, F_B_PFR_in (Inlet guess)
+    0.2, 0.8,              # F_A_out, F_B_out (LOW A and HIGH B)
+    600.0,                 # T_out (HOT to trigger ignition)
+    0.1, 0.3               # F_A_l, F_B_l (Liquid flow guess)
+])
+
+lb = np.zeros(11) +1e-8    # Small epsilon > 0
+ub = np.inf
+
+print("Solving with least_squares...")
+res = least_squares(
+    flowsheet_residual,
+    x0, 
+    bounds = (lb,ub),
+    args= (params,),
+    verbose = 1,
+    xtol = 1e-8,
+    ftol = 1e-8
+)
+
+print(f"Residual Norm: {res.cost:.4e}")
+
+
+if res.cost < 1e-4:
+    print("Converged!")
+    current_sol = res.x
+
+    #plot 
+    F_PFR_in =  [current_sol[4],current_sol[5],1.0]
+    final_pfr = solve_ivp(
+        pfr_odes,
+        (0.0,2.5),
+        [F_PFR_in[0], F_PFR_in[1], T0],
+        args=(1.0,),
+        method = "BDF"
+    )
+
+    z = final_pfr.t 
+    F_A = final_pfr.y[0]
+    F_B = final_pfr.y[1]
+    T = final_pfr.y[2]
+    P = final_pfr.y[3]
+
+
+    
+    fig= plt.figure(figsize=(12,8))
+    gs = fig.add_gridspec(2,3, height_ratios=[3,1.2])
+    plt.subplots_adjust(bottom=0.25)
+    # Plot Inital Lines (save them as variables l1, l2, l3, so it gets updated later)
+    ax1 = fig.add_subplot(gs[0,0])
+    l1, = ax1.plot(z,F_A,'b-',linewidth=2,label='F_A')
+    l2, = ax1.plot(z,F_B,'g-',linewidth=2,label='F_B')
+    ax1.set_xlabel("Reactor Length (m)")
+    ax1.set_ylabel("Molar flow (mol/s)")
+    ax1.set_ylim(0, 1.5)
+    ax1.set_xlim(0,2.5)
+    ax1.grid(True,alpha=0.3)
+    ax1.legend(loc = 'center right')
+
+    ax2 = ax1.twinx()
+    l3, = ax2.plot(z,T,'r--',linewidth=2, label = 'Temperature')
+    ax2.set_ylabel('Temperature (k)')
+    ax2.set_ylim(450,800) #fix y-axis
+    ax2.legend(loc='upper right')
+
+    ax3 = fig.add_subplot(gs[0,2])
+    l4, = ax3.plot(F_A,T,'k-',linewidth=2)
+    ax3.set_xlabel("Molar flow (mol/s)")
+    ax3.set_ylabel("Temperature (K)")
+    ax3.set_title("Reaction Trajectory")
+    ax3.grid(True,alpha=0.3)
+    ax3.invert_xaxis()
+
+    ax_text = fig.add_subplot(gs[1,:])
+    ax_text.axis('off')
+
+    kpi_text = ax_text.text(0.01,0.25, "", fontsize=12,
+                            bbox = dict(boxstyle="round",facecolor = "wheat",alpha=0.5))
+    
+    plt.title(f"Interactive PFR conversion plots")
+    
+# Add slider 
+#Define axis for slider: [left, bottom, width, height]
+ax_temp = plt.axes([0.25, 0.1, 0.65, 0.03])
+ax_Ea = plt.axes([0.25,0.05,0.65,0.03])
+
+#Create the slider object
+s_temp = Slider(
+    ax_temp, 
+    'Inlet Temp (K)', 
+    400.0, 
+    700.0, 
+    valinit=T0
+    )
+s_Ea = Slider(
+    ax=ax_Ea,
+    label='Activation Energy (Ea)',
+    valmin=10000.0,
+    valmax=70000.0,
+    valinit=Ea_val,
+    valstep=100.0
+)
+
+last_update_time = 0
+update_delay = 0.1 
+# The updated function 
+def update(val=None):
+    global last_update_time,current_sol,Ea_val
+
+    current_time = time.time()
+
+    if current_time - last_update_time > update_delay:
+
+        #Read sliders 
+        new_T = s_temp.val
+        Ea_val  = s_Ea.val
+        params["T_in"] = new_T
+
+    
+   
+        try:
+            new_res = least_squares(
+                flowsheet_residual,
+                current_sol,
+                bounds=(lb,ub),
+                args=(params,),
+                xtol=1e-4, ftol=1e-4,
+                verbose = 0
+            )
+
+            current_sol = new_res.x
+
+            F_PFR_in_new = [current_sol[4], current_sol[5],1.0]
+            final_pfr_new = solve_ivp(
+                pfr_odes,
+                (0.0,2.5),
+                [F_PFR_in_new[0], F_PFR_in_new[1], new_T],
+                args=(1.0,),
+                method= "BDF"
+            )
+
+            l1.set_ydata(final_pfr_new.y[0])
+            l1.set_xdata(final_pfr_new.t)
+
+            l2.set_ydata(final_pfr_new.y[1])
+            l2.set_xdata(final_pfr_new.t)
+
+            l3.set_ydata(final_pfr_new.y[2])
+            l3.set_xdata(final_pfr_new.t)
+
+            l4.set_data(final_pfr_new.y[0],final_pfr_new.y[2])
+
+            T_max = np.max(final_pfr_new.y[2])
+            F_A_inlet_total = final_pfr_new.y[0][0]
+            F_A_outlet = final_pfr_new.y[0][-1]
+            X_pass = (F_A_inlet_total-F_A_outlet)/F_A_inlet_total
+            F_A_l_res = current_sol[9]
+            F_B_l_res = current_sol[10]
+            purity_B = F_B_l_res/(F_A_l_res + F_B_l_res + 1e-9)
+
+            status_str = (
+                f"Process Performance:\n"
+                f"Per Pass Conversion : {X_pass*100:.2f}%\n"
+                f"Reactor Hotspot: {T_max:.1f} K\n"
+                f"Production B purity (Liquid):{purity_B*100:.1f}%\n"
+                f"Liquid Production Rate:{F_B_l_res:.2f} mol/s"
+            )
+            kpi_text.set_text(status_str)
+            fig.canvas.draw_idle()
+
+            last_update_time = current_time
+
+        except Exception as e:
+            print(f"Solver failed at Ea={Ea_val}")
+
+s_temp.on_changed(update)
+s_Ea.on_changed(update)
+
+plt.show()
+
