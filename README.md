@@ -38,11 +38,11 @@ guess = state["current_sol"].copy()
 # 2. FORCE the solver to look for an ignited state
 # We override the temperature guess to be at least 600 K.
 guess[8] = max(guess[8], 600.0)
-
+```
 
 Why this works: By forcing the solver to start its search from a high-temperature guess (600K), we ensure that if an Ignited State exists, the solver will find it immediately. This allows the simulation to snap correctly between extinguished and ignited states without manual resetting, providing a smooth user experience.
 
-📂 Project Structure
+### 📂 Project Structure
 The project is organized as a proper Python package for modularity and testing.
 
 src/pfr_model/
@@ -64,22 +64,23 @@ src/pfr_model/
 
 
 
-🛠️ Installation
+### 🛠️ Installation
 Clone the repository and install it in editable mode:
 
+```bash
 git clone [https://github.com/Asaisidharth/PFR-model-recycle.git](https://github.com/Asaisidharth/PFR-model-recycle.git)
 cd PFR-model-recycle
 pip install -e .
+```
 
-
-🖥️ Usage
+### 🖥️ Usage
 To launch the interactive simulation dashboard:
 
-
+```bash
 python -m pfr_model.scripts.run_interactive
+```
 
-
-🔬 Mathematical Model
+### 🔬 Mathematical Model
 The system solves for a vector of 11 unknowns simultaneously:
 
 Recycle Streams: F_A_rec, F_B_rec
@@ -88,9 +89,9 @@ Flash Split: F_A_vapor, F_B_vapor, F_A_liquid, F_B_liquid
 
 Reactor Inlet: F_A_in, F_B_in
 
-Reactor Outlet: F_A_out, F_B_out, T_out
+Reactor Outlet: F_A_out, F_B_out, T_outs
 
 The residuals are calculated by closing the mass and energy balances across the mixer, the integrated PFR path, and the flash unit.
 
-📄 License
+### 📄 License
 This project is licensed under the MIT License - see the LICENSE file for details.
